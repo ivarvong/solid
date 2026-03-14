@@ -191,8 +191,8 @@ defmodule Solid.Argument do
 
   @spec get(t, Context.t(), [Filter.t()], Keyword.t()) :: {:ok, term, Context.t()}
   def get(arg, context, filters, opts \\ []) do
-    scopes = Keyword.get(opts, :scopes, [:iteration_vars, :vars, :counter_vars])
-    strict_variables = Keyword.get(opts, :strict_variables, false)
+    scopes = opt_get(opts, :scopes, [:iteration_vars, :vars, :counter_vars])
+    strict_variables = opt_get(opts, :strict_variables, false)
 
     case do_get(arg, context, scopes, opts) do
       {:ok, value, context} ->
@@ -286,4 +286,8 @@ defmodule Solid.Argument do
         apply_filters(value, filters, context, opts)
     end
   end
+
+  # Opts may arrive as a keyword list (direct callers) or map (from render).
+  defp opt_get(opts, key, default) when is_map(opts), do: Map.get(opts, key, default)
+  defp opt_get(opts, key, default) when is_list(opts), do: Keyword.get(opts, key, default)
 end
