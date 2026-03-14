@@ -129,13 +129,20 @@ defmodule Solid.Context do
   end
 
   defp get_from_scope(context, scopes, variable) when is_list(scopes) do
-    scopes
-    |> Enum.reverse()
-    |> Enum.map(&get_from_scope(context, &1, variable))
-    |> Enum.reduce({:error, {:not_found, variable}}, fn
-      {:ok, nil}, acc = {:ok, _} -> acc
-      value = {:ok, _}, _acc -> value
-      _value, acc -> acc
+    # Try scopes in priority order, halt on first non-nil hit.
+    # {:ok, nil} is kept as fallback but does not shadow a non-nil
+    # value from a lower-priority scope.
+    Enum.reduce_while(scopes, {:error, {:not_found, variable}}, fn scope, acc ->
+      case get_from_scope(context, scope, variable) do
+        {:ok, nil} ->
+          {:cont, if(match?({:ok, _}, acc), do: acc, else: {:ok, nil})}
+
+        {:ok, _} = found ->
+          {:halt, found}
+
+        {:error, _} ->
+          {:cont, acc}
+      end
     end)
   end
 
