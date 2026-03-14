@@ -354,4 +354,66 @@ defmodule SolidTest do
                    end
     end
   end
+
+  describe "render options" do
+    test "custom_filters module overrides standard filter" do
+      defmodule OverrideFilters do
+        def upcase(input), do: "OVERRIDDEN:#{input}"
+      end
+
+      template = Solid.parse!("{{ name | upcase }}")
+      result = Solid.render!(template, %{"name" => "hello"}, custom_filters: OverrideFilters)
+      assert IO.iodata_to_binary(result) == "OVERRIDDEN:hello"
+    end
+
+    test "custom_filters module falls through to standard for unknown filter" do
+      defmodule PartialFilters do
+        def my_custom(_input), do: "custom"
+      end
+
+      template = Solid.parse!("{{ name | upcase }}")
+      result = Solid.render!(template, %{"name" => "hello"}, custom_filters: PartialFilters)
+      assert IO.iodata_to_binary(result) == "HELLO"
+    end
+
+    test "custom_filters as function" do
+      custom = fn
+        "reverse_it", [input] -> {:ok, String.reverse(input)}
+        _, _ -> :error
+      end
+
+      template = Solid.parse!("{{ name | reverse_it }}")
+      result = Solid.render!(template, %{"name" => "hello"}, custom_filters: custom)
+      assert IO.iodata_to_binary(result) == "olleh"
+    end
+
+    test "render with pre-built Context struct" do
+      template = Solid.parse!("{{ x }}")
+      context = %Solid.Context{counter_vars: %{"x" => "from_context"}}
+      {:ok, result, []} = Solid.render(template, context, [])
+      assert IO.iodata_to_binary(result) == "from_context"
+    end
+
+    test "assign writes to vars which takes priority over counter_vars" do
+      template = Solid.parse!("{% assign x = 'from_assign' %}{{ x }}")
+      result = Solid.render!(template, %{"x" => "from_hash"})
+      assert IO.iodata_to_binary(result) == "from_assign"
+    end
+
+    test "for loop iteration_vars override counter_vars" do
+      template = Solid.parse!("{% for x in items %}{{ x }}{% endfor %}")
+      result = Solid.render!(template, %{"items" => ["a", "b"], "x" => "original"})
+      assert IO.iodata_to_binary(result) == "ab"
+    end
+
+    test "scope priority: iteration_vars > vars > counter_vars" do
+      template =
+        Solid.parse!(
+          "{% for item in items %}{% assign item = 'shadowed' %}{{ item }}{% endfor %}"
+        )
+
+      result = Solid.render!(template, %{"items" => ["a", "b"]})
+      assert IO.iodata_to_binary(result) == "ab"
+    end
+  end
 end

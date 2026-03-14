@@ -1,0 +1,97 @@
+<div class="collection">
+  <h1>{{ collection.title | escape }}</h1>
+  <p>{{ collection.description | strip_html | truncatewords: 30 }}</p>
+  <p>{{ collection.products | size }} products</p>
+
+  <ul class="product-grid">
+    {% for product in collection.products %}
+    <li class="product-card {% cycle 'odd', 'even' %}">
+      <a href="{{ product.url }}">
+        <img src="{{ product.image }}" alt="{{ product.title | escape }}" />
+      </a>
+
+      <h3>
+        <a href="{{ product.url }}">{{ product.title | escape }}</a>
+        {% if product.on_sale %}<span class="badge sale">Sale</span>{% endif %}
+      </h3>
+
+      <p class="description">{{ product.description | strip_html | truncatewords: 20 }}</p>
+
+      <div class="price">
+        {% if product.compare_at_price > product.price %}
+          <span class="was">${{ product.compare_at_price | divided_by: 100.0 | round: 2 }}</span>
+          <span class="now">${{ product.price | divided_by: 100.0 | round: 2 }}</span>
+          {% assign savings = product.compare_at_price | minus: product.price %}
+          <span class="save">Save ${{ savings | divided_by: 100.0 | round: 2 }}</span>
+        {% else %}
+          <span class="regular">${{ product.price | divided_by: 100.0 | round: 2 }}</span>
+        {% endif %}
+      </div>
+
+      {% if product.available %}
+        {% if product.variants.size > 1 %}
+          <select name="id" class="variant-select">
+            {% for variant in product.variants %}
+              {% if variant.available %}
+                <option value="{{ variant.id }}"{% if forloop.first %} selected{% endif %}>
+                  {{ variant.title }} - ${{ variant.price | divided_by: 100.0 | round: 2 }}
+                  {% if variant.inventory < 5 %}(Only {{ variant.inventory }} left){% endif %}
+                </option>
+              {% else %}
+                <option value="{{ variant.id }}" disabled>{{ variant.title }} - Sold Out</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        {% else %}
+          {% assign first_variant = product.variants | first %}
+          <input type="hidden" name="id" value="{{ first_variant.id }}" />
+        {% endif %}
+        <button type="submit">Add to Cart</button>
+      {% else %}
+        <button disabled>Sold Out</button>
+      {% endif %}
+
+      {% if product.tags.size > 0 %}
+        <div class="tags">
+          {% for tag in product.tags %}
+            <a href="/collections/all/{{ tag | downcase | replace: ' ', '-' }}">{{ tag | capitalize }}</a>
+            {% unless forloop.last %}<span class="sep">, </span>{% endunless %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if product.vendor %}
+        <p class="vendor">by {{ product.vendor | escape }}</p>
+      {% endif %}
+
+      {% if product.review_count %}
+        <div class="rating">
+          {{ product.rating | round: 1 }} / 5
+          <span>({{ product.review_count }} reviews)</span>
+        </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+
+  {%- assign on_sale_count = 0 -%}
+  {%- for product in collection.products -%}
+    {%- if product.on_sale -%}
+      {%- assign on_sale_count = on_sale_count | plus: 1 -%}
+    {%- endif -%}
+  {%- endfor %}
+
+  {% if on_sale_count > 0 %}
+    <div class="sale-banner">{{ on_sale_count }} items on sale!</div>
+  {% endif %}
+
+  <div class="pagination">
+    {% if page > 1 %}
+      <a href="?page={{ page | minus: 1 }}">&laquo; Previous</a>
+    {% endif %}
+    <span>Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="?page={{ page | plus: 1 }}">Next &raquo;</a>
+    {% endif %}
+  </div>
+</div>
