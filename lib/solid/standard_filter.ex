@@ -10,18 +10,62 @@ defmodule Solid.StandardFilter do
   @spec apply(String.t(), list(), Solid.Parser.Loc.t(), keyword()) ::
           {:ok, any()} | {:error, Exception.t(), any()} | {:error, Exception.t()}
   def apply(filter, args, loc, opts) do
+    dispatch = opts[:filter_dispatch]
+    strict_filters = opts[:strict_filters] || false
+
+    result =
+      if is_map(dispatch) do
+        apply_via_dispatch(dispatch, filter, args, loc, opts)
+      else
+        apply_via_search(filter, args, loc, opts)
+      end
+
+    case result do
+      :error ->
+        if strict_filters do
+          {:error, %Solid.UndefinedFilterError{loc: loc, filter: filter}, List.first(args)}
+        else
+          {:ok, List.first(args)}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  # Fast path: dispatch table built at render entry. Single map lookup.
+  defp apply_via_dispatch(dispatch, filter, args, loc, opts) do
+    case dispatch do
+      %{^filter => {module, func_atom, _max_arity}} ->
+        arity = length(args)
+
+        if function_exported?(module, func_atom, arity) do
+          {:ok, Kernel.apply(module, func_atom, args)}
+        else
+          find_correct_function(module, func_atom, arity, loc)
+        end
+
+      _ ->
+        # Not in dispatch table -- might be a function-based custom filter
+        case opts[:custom_filters] do
+          fun when is_function(fun, 2) -> fun.(filter, args)
+          _ -> :error
+        end
+    end
+  rescue
+    e in Solid.ArgumentError -> {:error, %{e | loc: loc}}
+    ArgumentError -> :error
+    UndefinedFunctionError -> :error
+  end
+
+  # Slow path: no dispatch table (e.g. called from tests without render).
+  defp apply_via_search(filter, args, loc, opts) do
     custom_module_or_callback =
       opts[:custom_filters] || Application.get_env(:solid, :custom_filters, __MODULE__)
 
-    strict_filters = Keyword.get(opts, :strict_filters, false)
-
     with :error <- apply_filter(custom_module_or_callback, filter, args, loc),
          :error <- apply_filter(__MODULE__, filter, args, loc) do
-      if strict_filters do
-        {:error, %Solid.UndefinedFilterError{loc: loc, filter: filter}, List.first(args)}
-      else
-        {:ok, List.first(args)}
-      end
+      :error
     end
   end
 
@@ -43,26 +87,35 @@ defmodule Solid.StandardFilter do
     end
   end
 
-  defp find_correct_function(_callback, _fn_name, _arity, _loc), do: :error
-
   defp apply_filter(mod_or_callback, func, args, loc) do
     if is_function(mod_or_callback, 2) do
       mod_or_callback.(func, args)
     else
-      func = String.to_existing_atom(func)
-      {:ok, Kernel.apply(mod_or_callback, func, args)}
+      case safe_to_existing_atom(func) do
+        {:ok, func_atom} ->
+          arity = length(args)
+          Code.ensure_loaded(mod_or_callback)
+
+          if function_exported?(mod_or_callback, func_atom, arity) do
+            {:ok, Kernel.apply(mod_or_callback, func_atom, args)}
+          else
+            find_correct_function(mod_or_callback, func_atom, arity, loc)
+          end
+
+        :error ->
+          :error
+      end
     end
   rescue
-    # Unknown function name atom or unknown function -> fallback
-    ArgumentError ->
-      :error
+    e in Solid.ArgumentError -> {:error, %{e | loc: loc}}
+    ArgumentError -> :error
+    UndefinedFunctionError -> :error
+  end
 
-    e in Solid.ArgumentError ->
-      # augment error with loc
-      {:error, %{e | loc: loc}}
-
-    UndefinedFunctionError ->
-      find_correct_function(mod_or_callback, String.to_existing_atom(func), Enum.count(args), loc)
+  defp safe_to_existing_atom(string) when is_binary(string) do
+    {:ok, String.to_existing_atom(string)}
+  rescue
+    ArgumentError -> :error
   end
 
   @doc """
